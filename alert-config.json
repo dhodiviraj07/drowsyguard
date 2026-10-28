@@ -1,0 +1,30 @@
+{
+  "email": {
+    "service": "gmail",
+    "host": "",
+    "port": 587,
+    "secure": false,
+    "user": "dhodiviraj28@gmail.com",
+    "pass": "qbzw lcgg fwqm ojwe",
+    "from": ""
+  },
+  "sms": {
+    "provider": "test",
+    "twilio": {
+      "accountSid": "",
+      "authToken": "",
+      "fromPhone": ""
+    },
+    "fast2sms": {
+      "apiKey": ""
+    },
+    "webhook": {
+      "url": ""
+    }
+  },
+  "automation": {
+    "autoDispatch": true,
+    "countdownSec": 10,
+    "autoDrowsyTrigger": true
+  }
+}

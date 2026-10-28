@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DrowsyGuard + Emergency — Driver Drowsiness Detection</title>
+<style>
+:root{--bg:#f3f5f7;--pn:#fff;--ink:#14202b;--mut:#5d6b78;--line:#dde3e8;--acc:#0f766e;--bad:#c62828;--warn:#b26a00;--ok:#15803d;color-scheme:light;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d1318;--pn:#151d24;--ink:#e6edf3;--mut:#8b9aa8;--line:#25313b;--acc:#2dd4bf;--bad:#ff5c5c;--warn:#f5a524;--ok:#4ade80;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0d1318;--pn:#151d24;--ink:#e6edf3;--mut:#8b9aa8;--line:#25313b;--acc:#2dd4bf;--bad:#ff5c5c;--warn:#f5a524;--ok:#4ade80;color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--pn);flex-wrap:wrap}
+.logo{font-weight:700;font-size:18px;letter-spacing:.2px}.logo i{font-style:normal;color:var(--acc)}
+.sub{color:var(--mut);font-size:13px;margin-right:auto}
+.pill{padding:5px 14px;border-radius:99px;font-weight:700;font-size:13px;border:1.5px solid var(--mut);color:var(--mut)}
+.pill.ALERT{border-color:var(--ok);color:var(--ok)}.pill.CAUTION{border-color:var(--warn);color:var(--warn)}
+.pill.DROWSY{border-color:var(--bad);background:var(--bad);color:#fff}
+main{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,1fr);gap:16px;padding:16px 18px;max-width:1150px;margin:0 auto}
+.card{background:var(--pn);border:1px solid var(--line);border-radius:10px;padding:14px}
+.stage{position:relative;aspect-ratio:4/3;background:#0a0f13;border-radius:10px;overflow:hidden}
+.stage video,.stage canvas.o{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;color:#b9c6d1;font-size:15px}
+#flash{position:absolute;inset:0;background:rgba(220,30,30,.55);display:none;align-items:center;justify-content:center;color:#fff;font:800 clamp(28px,7vw,54px) system-ui;animation:fl .5s infinite alternate}
+#flash.on{display:flex}
+@keyframes fl{to{background:rgba(220,30,30,.15)}}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+button{font:600 14px system-ui,sans-serif;padding:9px 16px;border-radius:8px;border:1px solid var(--acc);background:var(--acc);color:#fff;cursor:pointer}
+button.s{background:none;color:var(--acc)}
+.big{display:flex;gap:10px}
+.m{flex:1}.m span{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px}
+.m b{display:block;font-size:34px;line-height:1.1;font-variant-numeric:tabular-nums}
+.bar{height:6px;background:var(--line);border-radius:3px;margin-top:6px;overflow:hidden}.bar u{display:block;height:100%;width:0;background:var(--acc);transition:width .1s}
+.st{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center}
+.st div{background:var(--bg);border-radius:8px;padding:8px 2px}.st b{display:block;font-size:20px}.st span{font-size:11px;color:var(--mut)}
+canvas.g{width:100%;height:auto;display:block}
+.side{display:flex;flex-direction:column;gap:12px}
+h3{margin:0 0 8px;font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px}
+.set{display:grid;grid-template-columns:110px 1fr 44px;gap:8px;align-items:center;font-size:14px;margin:6px 0}
+.set input{accent-color:var(--acc);width:100%}
+#log{list-style:none;margin:0;padding:0;font:12.5px ui-monospace,Menlo,monospace;color:var(--mut);max-height:120px;overflow:auto}
+#log li{padding:3px 0;border-bottom:1px dashed var(--line)}
+#banner{display:none;background:var(--bad);color:#fff;padding:10px 18px;text-align:center;font-weight:600}
+.snaps{display:flex;flex-wrap:wrap;gap:6px}.snaps canvas{width:31%;border-radius:6px;border:1px solid var(--line)}
+dialog{background:var(--pn);color:var(--ink);border:1px solid var(--line);border-radius:10px;max-width:480px;width:94%}dialog::backdrop{background:rgba(0,0,0,.55)}
+dialog td{padding:4px 0;border-bottom:1px solid var(--line)}
+.chk{font-size:14px;display:block;margin:4px 0}
+@media(max-width:820px){main{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+<div class="logo">Drowsy<i>Guard</i></div><div class="sub">Real-time driver drowsiness detection</div>
+<button id="bTheme" class="s">Theme</button><button id="bFs" class="s">Fullscreen</button>
+<div id="pill" class="pill">OFF</div>
+</header>
+<div id="banner"></div>
+<main>
+<div>
+<div class="stage"><video id="v" playsinline muted></video><canvas id="ov" class="o"></canvas><div id="msg">Press Start to switch on the camera</div><div id="flash">WAKE UP!</div></div>
+<div class="btns"><button id="bStart">Start camera</button><button id="bCal" class="s">Calibrate</button><button id="bDemo" class="s">Demo mode</button><button id="bReset" class="s">Reset</button><button id="bRep" class="s">Session report</button></div>
+</div>
+<div class="side">
+<div class="card"><div class="big">
+<div class="m"><span>Eye (EAR)</span><b id="ear">–</b><div class="bar"><u id="eb"></u></div></div>
+<div class="m"><span>Mouth (MAR)</span><b id="mar">–</b><div class="bar"><u id="mb"></u></div></div>
+<div class="m"><span>PERCLOS 60 s</span><b id="perc">0%</b><div class="bar"><u id="pb"></u></div></div>
+</div></div>
+<div class="card"><h3>Fatigue score (0 to 100)</h3><div class="m"><b id="sc" style="font-size:40px">0</b><div class="bar"><u id="sb"></u></div></div></div>
+<div class="card st"><div><b id="nb">0</b><span>blinks</span></div><div><b id="ny">0</b><span>yawns</span></div><div><b id="na">0</b><span>alarms</span></div><div><b id="nd">0</b><span>nods</span></div><div><b id="tm">0:00</b><span>session</span></div></div>
+<div class="card"><h3>Live EAR</h3><canvas id="g" class="g" width="600" height="110"></canvas></div>
+<div class="card"><h3>Settings</h3>
+<div class="set"><label for="thr">EAR threshold</label><input id="thr" type="range" min="12" max="32" value="21"><span id="thrv">0.21</span></div>
+<div class="set"><label for="dur">Alarm after</label><input id="dur" type="range" min="3" max="20" value="7"><span id="durv">0.7 s</span></div>
+<label class="chk"><input type="checkbox" id="snd" checked> Alarm sound</label><label class="chk"><input type="checkbox" id="voice" checked> Voice warnings</label><label class="chk"><input type="checkbox" id="auto" checked> Auto-start camera when opened</label><div id="light" style="font-size:13px;color:var(--mut);margin-top:6px">Lighting: –</div></div>
+<div class="card"><h3>Event log</h3><ul id="log"></ul></div>
+<div class="card"><h3>Alarm snapshots</h3><div id="snaps" class="snaps"></div></div>
+</div>
+</main>
+<dialog id="dlg"><h3>Session report</h3><div id="rep"></div><div class="btns"><button id="bCsv">Download CSV</button><button id="bClose" class="s">Close</button></div></dialog>
+<script>
+var $=function(i){return document.getElementById(i)};
+var S={mode:null,lm:null,stream:null,iv:null,thr:.21,dur:.7,closedAt:0,closedMs:0,hist:[],blinks:0,yawns:0,alarms:0,yawStart:0,yawed:false,alarm:false,trace:[],t0:0,faceT:0,cal:null,calEnd:0,lvl:0,nods:0,peak:0,scoreSum:0,scoreN:0,pitchAvg:0,nodStart:0,nodded:false,evs:[],lastAdv:0,lastLight:0,manual:false};
+var LE=[362,385,387,263,373,380],RE=[33,160,158,133,153,144],ctx=null,sir=null;
+function d(a,b){return Math.hypot(a[0]-b[0],a[1]-b[1])}
+function earOf(p){return (d(p[1],p[5])+d(p[2],p[4]))/(2*d(p[0],p[3]))}
+function ev(t){S.evs.push([new Date().toISOString(),t]);var l=$("log"),li=document.createElement("li");li.textContent=new Date().toLocaleTimeString()+"  "+t;l.insertBefore(li,l.firstChild);while(l.children.length>30)l.removeChild(l.lastChild)}
+function pill(t){var p=$("pill");p.textContent=t;p.className="pill "+t.split(" ")[0]}
+function siren(on){
+  $("flash").classList.toggle("on",on);
+  if(!on&&sir){clearInterval(sir.iv);try{sir.o.stop()}catch(e){}sir=null;return}
+  if(on&&!sir&&$("snd").checked&&ctx){try{var o=ctx.createOscillator(),g=ctx.createGain(),f=0;o.type="square";g.gain.value=.12;o.connect(g);g.connect(ctx.destination);o.start();sir={o:o,g:g,iv:setInterval(function(){o.frequency.value=(f++%2)?660:880},250)}}catch(e){}}
+}
+async function loadMP(){
+  var B="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14",m=await import(B+"/vision_bundle.mjs"),fs=await m.FilesetResolver.forVisionTasks(B+"/wasm");
+  return m.FaceLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"},runningMode:"VIDEO",numFaces:1});
+}
+function begin(mode){S.mode=mode;S.t0=Date.now();S.blinks=S.yawns=S.alarms=S.nods=S.peak=S.scoreSum=S.scoreN=0;S.evs=[];S.manual=false;S.hist=[];S.closedAt=0;S.closedMs=0;$("bStart").textContent="Stop";$("msg").style.display="none"}
+function stop(){
+  if(S.mode)saveSess();S.mode=null;clearInterval(S.iv);S.alarm=false;siren(false);
+  if(S.stream)S.stream.getTracks().forEach(function(t){t.stop()});S.stream=null;
+  $("bStart").textContent="Start camera";$("msg").style.cssText="display:flex";$("msg").textContent="Press Start to switch on the camera";pill("OFF");$("v").style.display="";
+}
+async function acquireCameraStream(){
+  if(S.stream){
+    try{S.stream.getTracks().forEach(function(t){t.stop()})}catch(e){}
+    S.stream=null;
+  }
+  var v=$("v");
+  if(v&&v.srcObject){
+    try{v.srcObject.getTracks().forEach(function(t){t.stop()})}catch(e){}
+    v.srcObject=null;
+  }
+  var sets=[
+    {video:{facingMode:"user",width:{ideal:640},height:{ideal:480}}},
+    {video:{width:{ideal:640},height:{ideal:480}}},
+    {video:{width:{ideal:1280},height:{ideal:720}}},
+    {video:true}
+  ];
+  var lastErr=null;
+  for(var i=0;i<sets.length;i++){
+    try{
+      return await navigator.mediaDevices.getUserMedia(sets[i]);
+    }catch(err){
+      lastErr=err;
+      if(err.name==="NotAllowedError"||err.name==="NotFoundError") throw err;
+      if(err.name==="NotReadableError") await new Promise(function(r){setTimeout(r,300)});
+    }
+  }
+  throw lastErr;
+}
+$("bStart").onclick=async function(){
+  if(S.mode){S.manual=true;stop();return}
+  var m=$("msg");m.style.cssText="display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;color:#b9c6d1;font-size:15px";
+  try{ctx=ctx||new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+  if(!window.isSecureContext||!navigator.mediaDevices){m.textContent="The browser hides the camera on this kind of address ("+location.protocol+"). Open the page from an https link, or from a computer in Chrome, or try Demo mode.";return}
+  m.textContent="Accessing camera…";
+  try{
+    S.stream=await acquireCameraStream();
+  }catch(e){
+    var n=e&&e.name;
+    if(n==="NotReadableError"){
+      m.innerHTML="<div style='max-width:440px;line-height:1.5;padding:14px;background:rgba(15,23,42,0.95);border-radius:10px;border:1px solid var(--line);box-shadow:0 8px 24px rgba(0,0,0,0.5)'>"+
+        "<b style='color:#f87171;font-size:15px'>📷 Camera Is Busy / Locked (NotReadableError)</b><br>"+
+        "<div style='font-size:13px;color:#cbd5e1;text-align:left;margin:10px 0 12px'>"+
+        "Windows reports that another application or browser tab is actively using your camera.<br><br>"+
+        "<b>To resolve this:</b><br>"+
+        "1. <b>Close duplicate tabs:</b> Close any other open tabs of this app in Chrome/Edge.<br>"+
+        "2. <b>Close camera apps:</b> Close Zoom, Microsoft Teams, Discord, Google Meet, Skype, OBS, or Windows Camera.<br>"+
+        "3. <b>Check Windows Camera Access:</b> Start &gt; Settings &gt; Privacy & Security &gt; Camera &gt; Allow apps to access your camera."+
+        "</div>"+
+        "<div style='display:flex;gap:8px;justify-content:center'>"+
+        "<button style='font-size:13px;padding:8px 18px;cursor:pointer' onclick='$(\"bStart\").click()'>🔄 Retry Camera</button>"+
+        "<button class='s' style='font-size:13px;padding:8px 18px;cursor:pointer' onclick='$(\"bDemo\").click()'>▶️ Use Demo Mode</button>"+
+        "</div>"+
+        "</div>";
+      ev("Camera failed: NotReadableError (webcam in use by another tab or app)");
+      return;
+    }
+    m.textContent=n==="NotAllowedError"?"Camera permission was denied. Allow the camera for this site in your browser address bar, then press Start again.":n==="NotFoundError"?"No camera found on this device. Try Demo mode.":"Camera could not start ("+n+"). Try Demo mode.";
+    ev("Camera failed: "+n);
+    return;
+  }
+  var v=$("v");v.style.display="";v.srcObject=S.stream;await v.play();m.textContent="Loading face model…";
+  var basic=false;
+  try{S.lm=S.lm||await Promise.race([loadMP(),new Promise(function(_,j){setTimeout(j,10000)})])}
+  catch(e){basic=true}
+  begin(basic?"basic":"cam");ev(basic?"Basic mode: face model unavailable, tracking eye pixels":"Camera tracking started");S.stream.getTracks()[0].onended=function(){ev("Camera lost, reconnecting");stop();setTimeout(function(){if(!S.mode&&$("auto").checked)$("bStart").click()},2000)};if(basic){bs.t0=performance.now();bs.base=0;bs.n=0;bs.E=null;S.faceT=bs.t0;$("msg").style.cssText="display:flex;align-items:flex-end;justify-content:flex-start;background:transparent;font-size:12px;text-align:left";loopB()}else loop();
+};
+$("bDemo").onclick=function(){
+  if(S.mode)stop();
+  try{ctx=ctx||new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+  begin("demo");$("v").style.display="none";$("ov").getContext("2d").clearRect(0,0,9999,9999);
+  var m=$("msg");m.style.display="flex";m.style.background="transparent";m.textContent="Demo mode: simulated driver (blinks, a long closure, a yawn)";m.style.alignItems="flex-start";
+  ev("Demo mode started");var t=0;
+  S.iv=setInterval(function(){t+=33;var c=t%26000,e=.31+Math.sin(t/300)*.01,mr=.08;
+    if(c%3500<130)e=.14;if(c>12000&&c<13500)e=.1;if(c>19000&&c<20200)mr=.7;
+    feed(e,mr,performance.now())},33);
+};
+$("bReset").onclick=function(){S.blinks=S.yawns=S.alarms=S.nods=S.peak=S.scoreSum=S.scoreN=0;S.evs=[];S.hist=[];S.t0=Date.now();$("log").innerHTML="";S.trace=[]};
+$("bCal").onclick=function(){if(!S.mode){ev("Start the camera first");return}S.cal=[];S.calEnd=performance.now()+2000;ev("Calibrating: keep eyes open for 2 s")};
+$("thr").oninput=function(){S.thr=this.value/100;$("thrv").textContent=S.thr.toFixed(2)};
+$("dur").oninput=function(){S.dur=this.value/10;$("durv").textContent=S.dur.toFixed(1)+" s"};
+setInterval(function(){if(S.mode){var s=Math.floor((Date.now()-S.t0)/1000);$("tm").textContent=Math.floor(s/60)+":"+("0"+s%60).slice(-2)}},1000);
+function speak(t){try{if($("voice").checked&&window.speechSynthesis){speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(t))}}catch(e){}}
+function snap(){if(S.mode!=="cam"&&S.mode!=="basic")return;var c=document.createElement("canvas"),x;c.width=160;c.height=120;x=c.getContext("2d");x.translate(160,0);x.scale(-1,1);x.drawImage($("v"),0,0,160,120);x.setTransform(1,0,0,1,0,0);x.fillStyle="#fff";x.font="11px sans-serif";x.fillText(new Date().toLocaleTimeString(),6,114);var g=$("snaps");g.insertBefore(c,g.firstChild);while(g.children.length>6)g.removeChild(g.lastChild)}
+function head(r,now){S.pitchAvg=S.pitchAvg?S.pitchAvg*.995+r*.005:r;if(r>S.pitchAvg+.07){if(!S.nodStart)S.nodStart=now;if(now-S.nodStart>800&&!S.nodded){S.nodded=true;S.nods++;ev("Head nod detected")}}else{S.nodStart=0;S.nodded=false}}
+function light(v,now){if(now-S.lastLight<2000)return;S.lastLight=now;var c=light.c||(light.c=document.createElement("canvas"));c.width=32;c.height=24;var x=c.getContext("2d");x.drawImage(v,0,0,32,24);var p=x.getImageData(0,0,32,24).data,s=0;for(var i=0;i<p.length;i+=4)s+=p[i]*.3+p[i+1]*.59+p[i+2]*.11;var l=s/(p.length/4);$("light").textContent=l<45?"Low light: accuracy reduced":l>200?"Too bright: accuracy reduced":"Lighting OK"}
+function stats(){var s=S.t0?Math.floor((Date.now()-S.t0)/1000):0;return {dur:s,blinks:S.blinks,yawns:S.yawns,alarms:S.alarms,nods:S.nods,peak:S.peak,avg:S.scoreN?Math.round(S.scoreSum/S.scoreN):0}}
+function saveSess(){var st=stats();if(st.dur<10)return;try{var a=JSON.parse(localStorage.getItem("dg_s")||"[]");st.at=new Date().toISOString();a.unshift(st);localStorage.setItem("dg_s",JSON.stringify(a.slice(0,20)))}catch(e){}}
+$("bRep").onclick=function(){var st=stats(),a=[];try{a=JSON.parse(localStorage.getItem("dg_s")||"[]")}catch(e){}
+  var rows=[["Duration",Math.floor(st.dur/60)+" min "+st.dur%60+" s"],["Blinks",st.blinks],["Yawns",st.yawns],["Alarms",st.alarms],["Head nods",st.nods],["Average fatigue",st.avg],["Peak fatigue",st.peak]];
+  $("rep").innerHTML="<table style='width:100%;font-size:14px'>"+rows.map(function(r){return "<tr><td>"+r[0]+"</td><td><b>"+r[1]+"</b></td></tr>"}).join("")+"</table><p style='color:var(--mut);font-size:13px'>Sessions saved on this device: "+a.length+(a[0]?". Last peak fatigue: "+a[0].peak:"")+"</p>";$("dlg").showModal()};
+$("bClose").onclick=function(){$("dlg").close()};
+$("bCsv").onclick=function(){var st=stats(),r=["time,event"].concat(S.evs.map(function(e){return e[0]+","+e[1].replace(/,/g,";")}));r.push("","summary,duration_s="+st.dur+" blinks="+st.blinks+" yawns="+st.yawns+" alarms="+st.alarms+" nods="+st.nods+" peak="+st.peak);var u=URL.createObjectURL(new Blob([r.join("\n")],{type:"text/csv"})),a=document.createElement("a");a.href=u;a.download="drowsyguard-session.csv";a.click()};
+$("bTheme").onclick=function(){var r=document.documentElement,dk=r.getAttribute("data-theme")==="dark"||(!r.getAttribute("data-theme")&&matchMedia("(prefers-color-scheme: dark)").matches);r.setAttribute("data-theme",dk?"light":"dark")};
+$("bFs").onclick=function(){try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()}catch(e){}};
+try{$("auto").checked=localStorage.getItem("dg_auto")!=="0"}catch(e){}
+$("auto").onchange=function(){try{localStorage.setItem("dg_auto",this.checked?"1":"0")}catch(e){}};
+addEventListener("pointerdown",function(){if(ctx&&ctx.state==="suspended")ctx.resume()});
+addEventListener("load",function(){if($("auto").checked)$("bStart").click()});
+document.addEventListener("visibilitychange",function(){if(!document.hidden&&!S.mode&&!S.manual&&$("auto").checked&&S.t0)$("bStart").click()});
+var bs={base:0,n:0,t0:0,t:0,E:null,fw:0,c:null},FD=null;try{FD=window.FaceDetector?new FaceDetector({fastMode:true,maxDetectedFaces:1}):null}catch(e){}
+function darkR(x,bx,by,bw,bh){var d=x.getImageData(bx,by,bw,bh).data,n=d.length/4,l=new Array(n),m=0,i,c=0;for(i=0;i<n;i++){l[i]=d[i*4]*.3+d[i*4+1]*.59+d[i*4+2]*.11;m+=l[i]}m/=n;for(i=0;i<n;i++)if(l[i]<m*.6)c++;return c/n}
+async function loopB(){
+  if(S.mode!=="basic")return;
+  var v=$("v"),now=performance.now(),W=v.videoWidth,H=v.videoHeight;
+  if(v.readyState>=2&&W){
+    var c=bs.c||(bs.c=document.createElement("canvas"));c.width=W;c.height=H;var x=c.getContext("2d",{willReadFrequently:true});x.drawImage(v,0,0);
+    var o=$("ov"),g=o.getContext("2d"),ok=true;o.width=W;o.height=H;
+    if(!bs.E){bs.E=[[W*.36,H*.4],[W*.64,H*.4]];bs.fw=W*.34}
+    if(FD&&now-bs.t>150){bs.t=now;try{var fs=await FD.detect(c),f=fs[0];if(f){var ey=(f.landmarks||[]).filter(function(p){return p.type==="eye"});if(ey.length>1){bs.E=ey.map(function(p){return [p.locations[0].x,p.locations[0].y]});bs.fw=f.boundingBox.width;S.faceT=now}}else if(now-S.faceT>1500)ok=false}catch(e){}}
+    if(S.mode!=="basic")return;
+    var bw=Math.round(bs.fw*.34),bh=Math.round(bs.fw*.16),dr=0;g.strokeStyle="#2dd4bf";g.lineWidth=2;
+    bs.E.forEach(function(p){var bx=Math.max(0,Math.round(p[0]-bw/2)),by=Math.max(0,Math.round(p[1]-bh/2)),w=Math.min(bw,W-bx),h=Math.min(bh,H-by);if(w>4&&h>4){dr+=darkR(x,bx,by,w,h);g.strokeRect(bx,by,w,h)}});
+    dr/=bs.E.length;
+    if(now-bs.t0<2500){bs.base=bs.n?(bs.base*bs.n+dr)/(bs.n+1):dr;bs.n++;pill("CALIBRATING");$("msg").textContent="Calibrating: look at the camera with eyes open"}
+    else{$("msg").textContent="Basic mode: tracks eye pixels, less accurate than the face model. Keep your eyes inside the boxes.";
+      if(ok)feed(.32*Math.min(1.2,dr/Math.max(bs.base,.02)),.08,now);else{S.closedAt=0;S.closedMs=0;pill("NO FACE")}}
+  }
+  document.hidden?setTimeout(loopB,250):requestAnimationFrame(loopB);
+}
+function loop(){
+  if(S.mode!=="cam")return;
+  var v=$("v"),now=performance.now();
+  if(v.readyState>=2){
+    var o=$("ov"),x=o.getContext("2d"),W=v.videoWidth,H=v.videoHeight;o.width=W;o.height=H;
+    var f=S.lm.detectForVideo(v,now).faceLandmarks[0];
+    if(f){
+      var q=function(i){return [f[i].x*W,f[i].y*H]},a=LE.map(q),b=RE.map(q);
+      x.fillStyle="#2dd4bf";a.concat(b,[q(13),q(14),q(78),q(308)]).forEach(function(p){x.beginPath();x.arc(p[0],p[1],3,0,7);x.fill()});
+      S.faceT=now;head((f[1].y-f[10].y)/(f[152].y-f[10].y),now);feed((earOf(a)+earOf(b))/2,d(q(13),q(14))/d(q(78),q(308)),now);light(v,now);
+    }else if(now-S.faceT>1500){S.closedAt=0;S.closedMs=0;if(S.alarm){S.alarm=false;siren(false)}pill("NO FACE")}
+  }
+  document.hidden?setTimeout(loop,250):requestAnimationFrame(loop);
+}
+function feed(e,mar,now){
+  if(S.cal){S.cal.push(e);if(now>S.calEnd){var m=S.cal.reduce(function(p,c){return p+c},0)/S.cal.length;S.thr=Math.max(.12,+(m*.72).toFixed(2));$("thr").value=Math.round(S.thr*100);$("thr").oninput.call($("thr"));S.cal=null;ev("Calibrated: threshold "+S.thr.toFixed(2))}}
+  var closed=e<S.thr;
+  if(closed){if(!S.closedAt)S.closedAt=now;S.closedMs=now-S.closedAt}
+  else{if(S.closedAt&&S.closedMs>60&&S.closedMs<400)S.blinks++;S.closedAt=0;S.closedMs=0}
+  S.hist.push([now,closed]);while(S.hist[0][0]<now-60000)S.hist.shift();
+  if(mar>.6){if(!S.yawStart)S.yawStart=now;if(now-S.yawStart>500&&!S.yawed){S.yawed=true;S.yawns++;ev("Yawn detected")}}else{S.yawStart=0;S.yawed=false}
+  var al=S.closedMs>=S.dur*1000;
+  if(al&&!S.alarm){S.alarm=true;S.alarms++;S.lvl=1;ev("ALARM: eyes closed");siren(true);speak("Wake up! Stay alert.");snap()}else if(!al&&S.alarm){S.alarm=false;S.lvl=0;siren(false)}
+  if(S.alarm&&S.lvl<2&&S.closedMs-S.dur*1000>2000){S.lvl=2;ev("Escalated to level 2");if(sir)sir.g.gain.value=.4;speak("Danger. Please pull over and rest.")}
+  var pc=S.hist.filter(function(h){return h[1]}).length/S.hist.length;
+  $("ear").textContent=e.toFixed(2);$("mar").textContent=mar.toFixed(2);$("perc").textContent=Math.round(pc*100)+"%";
+  $("eb").style.width=Math.min(100,e/.4*100)+"%";$("mb").style.width=Math.min(100,mar/.8*100)+"%";$("pb").style.width=Math.min(100,pc*300)+"%";
+  $("nb").textContent=S.blinks;$("ny").textContent=S.yawns;$("na").textContent=S.alarms;$("nd").textContent=S.nods;
+  var sc=Math.min(100,Math.round(pc*200+S.yawns*6+S.alarms*10+S.nods*5));S.peak=Math.max(S.peak,sc);S.scoreSum+=sc;S.scoreN++;
+  $("sc").textContent=sc;$("sb").style.width=sc+"%";
+  pill(S.alarm?"DROWSY":sc>=35?"CAUTION":"ALERT");
+  var bn=$("banner");if(sc>=60){bn.style.display="block";bn.textContent="High fatigue score. Please take a break at the next safe stop.";if(now-S.lastAdv>60000){S.lastAdv=now;ev("Break advised");speak("You seem very tired. Please take a break.")}}else bn.style.display="none";
+  S.trace.push(e);if(S.trace.length>300)S.trace.shift();
+  var g=$("g").getContext("2d"),cs=getComputedStyle(document.documentElement),Y=function(v){return 110-Math.min(v,.45)/.45*110};
+  g.clearRect(0,0,600,110);g.strokeStyle=cs.getPropertyValue("--bad");g.setLineDash([5,4]);g.beginPath();g.moveTo(0,Y(S.thr));g.lineTo(600,Y(S.thr));g.stroke();g.setLineDash([]);
+  g.strokeStyle=cs.getPropertyValue("--acc");g.lineWidth=2;g.beginPath();S.trace.forEach(function(v,i){i?g.lineTo(i*2,Y(v)):g.moveTo(0,Y(v))});g.stroke();g.lineWidth=1;
+}
+</script>
+<script>
+/* DrowsyGuard Emergency Alert System with Automated SMS & Email Messaging */
+(function(){
+var $=function(i){return document.getElementById(i)},K="dg_em",HK="dg_em_hist";
+var D={name:"Driver",blood:"",notes:"",contacts:[{n:"Emergency Contact",p:"+1 555-0199",e:"emergency.contact@example.com"}],num:"112",g:4,kmh:20,api:"/api/alert",consent:true,autoSec:15};
+var C=D;try{
+  var saved = JSON.parse(localStorage.getItem(K)||"{}");
+  C=Object.assign({},D,saved);
+  if(saved.contacts && saved.contacts.length) C.contacts = saved.contacts;
+}catch(e){}
+var E={on:false,n:0,t:0,rep:0,reason:"",armed:false,spd:[],dev:[],spike:0,spikeV:0,pos:null,l2:0,ac:null,sirI:0,osc:null,sos:0,hist:[],lastP:null,lastH:null,lastPo:null,lastAd:""};
+try{E.hist=JSON.parse(localStorage.getItem(HK)||"[]")}catch(e){}
+function log(t){try{if(window.ev)window.ev("EMERGENCY: "+t)}catch(e){}}
+function save(){try{localStorage.setItem(K,JSON.stringify(C))}catch(e){}}
+function hist(status,lat,lng){E.hist.unshift({t:new Date().toISOString(),reason:E.reason,lat:lat,lng:lng,status:status});E.hist=E.hist.slice(0,30);try{localStorage.setItem(HK,JSON.stringify(E.hist))}catch(e){}}
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+
+/* ---------- UI ---------- */
+var st=document.createElement("style");
+st.textContent=".em-o{position:fixed;inset:0;z-index:9999;display:none;overflow:auto;padding:max(18px,env(safe-area-inset-top)) 18px 24px;font-family:system-ui,sans-serif}"+
+".em-c{background:#b71c1c;color:#fff;text-align:center;align-items:center;justify-content:center;flex-direction:column}.em-c.on{display:flex}"+
+".em-c h1{font-size:clamp(26px,7vw,46px);margin:0 0 6px}.em-c .n{font-size:min(34vw,200px);font-weight:800;line-height:1}"+
+".em-c button{font-size:24px;padding:20px 44px;margin-top:18px;background:#fff;color:#b71c1c;border:0;border-radius:14px;font-weight:800;cursor:pointer}"+
+".em-r{background:var(--bg,#fff);color:var(--ink,#111)}.em-r.on{display:block}.em-r h2{margin:0 0 8px}"+
+".em-k{background:var(--pn,#fff);border:1px solid var(--line,#ccc);border-radius:10px;padding:12px;margin:10px 0;font-size:14.5px}"+
+".em-b{display:block;width:100%;text-align:center;text-decoration:none;font:700 17px system-ui;padding:15px;border-radius:10px;margin:8px 0;border:0;color:#fff;background:var(--acc,#0f766e);cursor:pointer}"+
+".em-b.red{background:#c62828;font-size:20px}.em-b.s{background:none;color:var(--acc,#0f766e);border:1.5px solid var(--acc,#0f766e)}"+
+"#emSOS{position:fixed;right:14px;bottom:max(14px,env(safe-area-inset-bottom));z-index:900;width:76px;height:76px;border-radius:50%;border:3px solid #fff;background:#c62828;color:#fff;font:800 18px system-ui;box-shadow:0 2px 10px #0006;overflow:hidden;touch-action:none;user-select:none;cursor:pointer}"+
+"#emSOS i{position:absolute;left:0;bottom:0;width:100%;height:0;background:#ff8a80;opacity:.8}#emSOS span{position:relative}"+
+"#emSet label{display:block;font-size:13px;color:var(--mut,#666);margin-top:8px}#emSet input,#emSet select,#emSet textarea{width:100%;font:14.5px system-ui;padding:8px;border:1px solid var(--line,#ccc);border-radius:6px;background:var(--bg,#fff);color:var(--ink,#111)}"+
+"#emSet .r3{display:grid;grid-template-columns:1fr 1.2fr 1.3fr;gap:4px;margin:4px 0}#emSet{max-height:92vh;overflow:auto}"+
+".auto-badge{display:inline-flex;align-items:center;gap:6px;background:#e0f2fe;color:#0369a1;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:700;margin-bottom:6px}";
+document.head.appendChild(st);
+
+var w=document.createElement("div");
+w.innerHTML='<div id="emC" class="em-o em-c"><h1>AUTOMATIC EMERGENCY ALERT IN</h1><div class="n" id="emN">15</div><div id="emWhy" style="font-size:16px;opacity:.9;margin-top:4px"></div><button id="emX">CANCEL ALERT</button></div>'+
+'<div id="emR" class="em-o em-r"></div>'+
+'<button id="emSOS" aria-label="Hold 2 seconds for SOS"><i></i><span>SOS</span></button>'+
+'<dialog id="emSet"><h3>Automated Emergency Dispatch Setup</h3>'+
+'<label>Driver Name<input id="emNm"></label><label>Blood group (optional)<input id="emBl"></label><label>Medical notes (optional)<textarea id="emMd" rows="2"></textarea></label>'+
+'<label>Emergency Contacts (Name, Phone number for auto-SMS, Email for auto-Email)</label><div id="emCt"></div>'+
+'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
+'  <label>Emergency Number<select id="emNum"><option>112</option><option>911</option><option>999</option><option>100</option></select></label>'+
+'  <label>Auto-dispatch Countdown (sec)<input id="emAutoSec" type="number" min="5" max="30" value="15"></label>'+
+'</div>'+
+'<div style="background:var(--bg,#f3f5f7);border:1px solid var(--line,#dde3e8);border-radius:8px;padding:12px;margin:12px 0;">'+
+'  <h4 style="margin:0 0 6px;font-size:14px;color:var(--ink)">📱 Automated SMS & Phone Messaging</h4>'+
+'  <p style="font-size:12px;color:var(--mut);margin:0 0 8px">When emergency triggers, an SMS message with live GPS location and nearest hospital is automatically dispatched to all phone numbers in contacts.</p>'+
+'  <label style="font-size:12px">SMS Provider'+
+'    <select id="emSmsProv">'+
+'      <option value="test">Smart SMS Gateway (Instant Dispatch Simulator)</option>'+
+'      <option value="twilio">Twilio Cellular SMS</option>'+
+'      <option value="fast2sms">Fast2SMS Gateway</option>'+
+'      <option value="webhook">Custom Webhook / Notification URL</option>'+
+'    </select>'+
+'  </label>'+
+'  <div id="emTwilioBox" style="display:none;margin-top:6px">'+
+'    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'+
+'      <label style="font-size:11px">Twilio Account SID<input id="emTwSid" placeholder="ACxxxx"></label>'+
+'      <label style="font-size:11px">Twilio Phone (From)<input id="emTwFrom" placeholder="+1234567890"></label>'+
+'    </div>'+
+'    <label style="font-size:11px;margin-top:4px">Twilio Auth Token<input id="emTwTok" type="password" placeholder="Auth Token"></label>'+
+'  </div>'+
+'  <div id="emFastBox" style="display:none;margin-top:6px">'+
+'    <label style="font-size:11px">Fast2SMS API Key<input id="emFastKey" type="password" placeholder="API Key"></label>'+
+'  </div>'+
+'  <div id="emWebBox" style="display:none;margin-top:6px">'+
+'    <label style="font-size:11px">Webhook URL<input id="emWebUrl" placeholder="https://api.domain.com/sms-webhook"></label>'+
+'  </div>'+
+'</div>'+
+'<div style="background:var(--bg,#f3f5f7);border:1px solid var(--line,#dde3e8);border-radius:8px;padding:12px;margin:12px 0;">'+
+'  <h4 style="margin:0 0 6px;font-size:14px;color:var(--ink)">📧 Automated Email Forwarding</h4>'+
+'  <p style="font-size:12px;color:var(--mut);margin:0 0 8px">Full HTML emergency report is automatically forwarded to all recipient emails.</p>'+
+'  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
+'    <label style="font-size:12px">Email Service<select id="emMailSvc"><option value="test">Test Mailer (Ethereal Preview)</option><option value="gmail">Gmail</option><option value="custom">Custom SMTP</option></select></label>'+
+'    <label style="font-size:12px">Sender Email<input id="emMailUser" placeholder="name@gmail.com"></label>'+
+'  </div>'+
+'  <div id="emSmtpCustomRow" style="display:none;grid-template-columns:2fr 1fr;gap:8px;margin-top:6px">'+
+'    <label style="font-size:12px">SMTP Host<input id="emMailHost" placeholder="smtp.mail.com"></label>'+
+'    <label style="font-size:12px">SMTP Port<input id="emMailPort" type="number" value="587"></label>'+
+'  </div>'+
+'  <div id="emSmtpPassRow" style="display:none;margin-top:6px">'+
+'    <label style="font-size:12px">App Password / Password<input id="emMailPass" type="password" placeholder="16-character Google App Password"></label>'+
+'  </div>'+
+'</div>'+
+'<div style="display:flex;gap:8px;margin:10px 0;align-items:center;flex-wrap:wrap">'+
+'  <button type="button" id="emTestAllBtn" class="s" style="font-size:13px;padding:8px 14px">⚡ Test Automatic Dispatch (SMS + Email)</button>'+
+'  <span id="emDispStatus" style="font-size:12px;color:var(--mut)"></span>'+
+'</div>'+
+'<label style="display:flex;gap:8px;align-items:flex-start;color:inherit"><input type="checkbox" id="emCo" style="width:auto;margin-top:4px" checked><span>Enable automatic dispatch of SMS & Email when emergency warning activates.</span></label>'+
+'<div class="btns" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button id="emSv">Save Settings</button><button id="emArm" class="s">Enable Crash Sensor</button><button id="emTest" class="s">Run Full Emergency Simulation</button><button id="emCl" class="s">Close</button></div>'+
+'<p class="note" id="emSt"></p>'+
+'<h3>Debug Triggers</h3><div class="btns" style="display:flex;gap:8px;flex-wrap:wrap"><button id="emDd" class="s">Simulate Unresponsive Drowsiness</button><button id="emDc" class="s">Simulate High-Speed Crash</button></div>'+
+'<h3>Emergency Dispatch Log</h3><div id="emH" class="note"></div></dialog>';
+document.body.appendChild(w);
+
+var hb=document.createElement("button");hb.className="s";hb.textContent="Emergency";
+var hd=document.querySelector("header");hd.insertBefore(hb,$("pill"));hb.onclick=openSet;
+
+function openSet(){
+  $("emNm").value=C.name;$("emBl").value=C.blood;$("emMd").value=C.notes;$("emNum").value=C.num;$("emAutoSec").value=C.autoSec||15;$("emCo").checked=C.consent;
+  var h="";for(var i=0;i<5;i++){var c=C.contacts[i]||{};h+='<div class="r3"><input placeholder="Name" value="'+esc(c.n)+'"><input placeholder="Phone (+ country code)" type="tel" value="'+esc(c.p)+'"><input placeholder="Recipient Email" type="email" value="'+esc(c.e)+'"></div>'}
+  $("emCt").innerHTML=h;
+  $("emH").innerHTML=E.hist.length?E.hist.slice(0,10).map(function(x){return esc(new Date(x.t).toLocaleString()+" - "+x.reason+" - "+x.status)}).join("<br>"):"No alerts dispatched yet";
+  
+  fetch("/api/config").then(function(r){return r.json()}).then(function(res){
+    if(res.success && res.config){
+      var ec = res.config.email || {};
+      var sc = res.config.sms || {};
+      $("emMailSvc").value = ec.service || (ec.host ? "custom" : (ec.user ? "gmail" : "test"));
+      $("emMailUser").value = ec.user || "";
+      $("emMailHost").value = ec.host || "";
+      $("emMailPort").value = ec.port || 587;
+      $("emMailPass").value = ec.pass || "";
+      
+      $("emSmsProv").value = sc.provider || "test";
+      var tw = sc.twilio || {};
+      $("emTwSid").value = tw.accountSid || "";
+      $("emTwTok").value = tw.authToken || "";
+      $("emTwFrom").value = tw.fromPhone || "";
+      var fa = sc.fast2sms || {};
+      $("emFastKey").value = fa.apiKey || "";
+      var we = sc.webhook || {};
+      $("emWebUrl").value = we.url || "";
+
+      toggleFields();
+    }
+  }).catch(function(){});
+
+  $("emSet").showModal();
+}
+
+function toggleFields(){
+  var svc = $("emMailSvc").value;
+  $("emSmtpCustomRow").style.display = svc === "custom" ? "grid" : "none";
+  $("emSmtpPassRow").style.display = (svc === "gmail" || svc === "custom") ? "block" : "none";
+
+  var sp = $("emSmsProv").value;
+  $("emTwilioBox").style.display = sp === "twilio" ? "block" : "none";
+  $("emFastBox").style.display = sp === "fast2sms" ? "block" : "none";
+  $("emWebBox").style.display = sp === "webhook" ? "block" : "none";
+}
+$("emMailSvc").onchange = toggleFields;
+$("emSmsProv").onchange = toggleFields;
+
+function read(){
+  C.name=$("emNm").value.trim()||"Driver";C.blood=$("emBl").value.trim();C.notes=$("emMd").value.trim();C.num=$("emNum").value;
+  C.autoSec=Math.max(5,+$("emAutoSec").value||15);C.consent=$("emCo").checked;
+  C.contacts=[].map.call($("emCt").children,function(r){var i=r.children;return {n:i[0].value.trim(),p:i[1].value.trim(),e:i[2].value.trim()}}).filter(function(c){return c.p||c.e||c.n});
+  save();
+
+  var cfg = {
+    email: {
+      service: $("emMailSvc").value,
+      user: $("emMailUser").value.trim(),
+      host: $("emMailSvc").value === "custom" ? $("emMailHost").value.trim() : "",
+      port: $("emMailSvc").value === "custom" ? +$("emMailPort").value || 587 : 587,
+      pass: $("emMailPass").value
+    },
+    sms: {
+      provider: $("emSmsProv").value,
+      twilio: {
+        accountSid: $("emTwSid").value.trim(),
+        authToken: $("emTwTok").value,
+        fromPhone: $("emTwFrom").value.trim()
+      },
+      fast2sms: { apiKey: $("emFastKey").value.trim() },
+      webhook: { url: $("emWebUrl").value.trim() }
+    },
+    automation: {
+      autoDispatch: C.consent,
+      countdownSec: C.autoSec,
+      autoDrowsyTrigger: true
+    }
+  };
+
+  fetch("/api/config", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(cfg)
+  }).catch(function(){});
+}
+
+$("emSv").onclick=function(){read();$("emSt").textContent="Automated messaging settings saved."};
+$("emCl").onclick=function(){read();$("emSet").close()};
+$("emTest").onclick=function(){read();$("emSet").close();start("TEST: Full Automated Flow Simulation")};
+$("emDd").onclick=function(){read();$("emSet").close();start("Unresponsive Driver (Drowsiness Level 2)")};
+$("emDc").onclick=function(){read();$("emSet").close();start("High-Speed Impact / Crash Detected")};
+
+$("emTestAllBtn").onclick=function(){
+  read();
+  var st = $("emDispStatus");
+  st.textContent = "Dispatching test SMS and Email...";
+  st.style.color = "var(--mut)";
+  var emList = C.contacts.map(function(c){return c.e}).filter(Boolean);
+  var phList = C.contacts.map(function(c){return c.p}).filter(Boolean);
+  if(!emList.length && !phList.length){
+    st.textContent = "Please enter at least one contact with a phone number or email.";
+    st.style.color = "var(--bad)";
+    return;
+  }
+  fetch("/api/alert", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      driverName: C.name,
+      reason: "TEST AUTOMATED DISPATCH",
+      time: new Date().toLocaleString(),
+      contacts: C.contacts,
+      lat: E.pos ? E.pos.lat : 28.6139,
+      lng: E.pos ? E.pos.lng : 77.2090,
+      address: "Simulated Driver Coordinates",
+      blood: C.blood,
+      notes: C.notes
+    })
+  }).then(function(r){return r.json()}).then(function(res){
+    if(res.success){
+      var summary = "✅ Auto-Dispatch Successful: ";
+      if(res.sms && res.sms.sent) summary += "SMS (" + res.sms.recipients.length + ") ";
+      if(res.email && res.email.sent) summary += "Email (" + res.email.recipients.length + ") ";
+      st.textContent = summary;
+      st.style.color = "var(--ok)";
+      if(res.email && res.email.previewUrl) window.open(res.email.previewUrl, "_blank");
+    } else {
+      st.textContent = "❌ " + (res.error || "Failed");
+      st.style.color = "var(--bad)";
+    }
+  }).catch(function(e){
+    st.textContent = "❌ Error: " + e.message;
+    st.style.color = "var(--bad)";
+  });
+};
+
+/* ---------- Sound & Voice ---------- */
+function say(t){try{if(window.speechSynthesis){speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(t))}}catch(e){}}
+function siren(on){
+  clearInterval(E.sirI);try{if(E.osc)E.osc.stop()}catch(e){}E.osc=null;if(!on)return;
+  try{E.ac=E.ac||new (window.AudioContext||window.webkitAudioContext)();if(E.ac.state==="suspended")E.ac.resume();
+    var o=E.ac.createOscillator(),g=E.ac.createGain(),f=0;o.type="square";g.gain.value=.35;o.connect(g);g.connect(E.ac.destination);o.start();E.osc=o;
+    E.sirI=setInterval(function(){o.frequency.value=(f++%2)?700:1000},250)}catch(e){}
+}
+
+/* ---------- Automated Emergency Flow ---------- */
+function start(reason){
+  if(E.on)return;E.on=true;E.reason=reason;E.n=C.autoSec||15;
+  $("emC").classList.add("on");$("emWhy").textContent=reason;$("emN").textContent=E.n;siren(true);
+  say("Emergency warning. Sending automatic emergency message in "+E.n+" seconds. Press cancel if you are safe.");
+  log("Countdown started ("+E.n+"s): "+reason);
+  E.t=setInterval(function(){
+    E.n--;$("emN").textContent=Math.max(E.n,0);
+    if(E.n>0 && E.n%5===0) say(E.n+" seconds. Press cancel if safe.");
+    if(E.n<=0){
+      clearInterval(E.t);
+      $("emC").classList.remove("on");
+      siren(false);
+      send(true); // Automatically sends emergency messages!
+    }
+  },1000);
+}
+$("emX").onclick=function(){clearInterval(E.t);siren(false);try{speechSynthesis.cancel()}catch(e){}$("emC").classList.remove("on");E.on=false;hist("cancelled");log("Cancelled by driver")};
+
+function pos(){return new Promise(function(res){
+  if(!navigator.geolocation)return res(E.pos);
+  navigator.geolocation.getCurrentPosition(function(p){E.pos={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy};res(E.pos)},function(){res(E.pos)},{enableHighAccuracy:true,timeout:12000,maximumAge:0});
+})}
+function km(a,b,c,d){var r=Math.PI/180,x=(c-a)*r,y=(d-b)*r,h=Math.sin(x/2)*Math.sin(x/2)+Math.cos(a*r)*Math.cos(c*r)*Math.sin(y/2)*Math.sin(y/2);return 12742*Math.asin(Math.sqrt(h))}
+function near(lat,lng,kind){
+  var q='[out:json][timeout:12];nwr["amenity"="'+kind+'"](around:20000,'+lat+','+lng+');out center tags 60;';
+  return fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(q)}).then(function(r){return r.json()}).then(function(j){
+    var best=null;(j.elements||[]).forEach(function(e){var a=e.lat||(e.center&&e.center.lat),b=e.lon||(e.center&&e.center.lon);if(a==null)return;var d=km(lat,lng,a,b);if(!best||d<best.d)best={d:d,lat:a,lng:b,name:(e.tags&&(e.tags.name||e.tags["name:en"]))||("Unnamed "+kind),phone:e.tags&&(e.tags.phone||e.tags["contact:phone"])||""}});return best}).catch(function(){return null});
+}
+function addr(lat,lng){return fetch("https://nominatim.openstreetmap.org/reverse?format=json&lat="+lat+"&lon="+lng).then(function(r){return r.json()}).then(function(j){return j.display_name||""}).catch(function(){return ""})}
+function nav(p){return "https://www.google.com/maps/dir/?api=1&destination="+p.lat+","+p.lng}
+
+// AUTOMATIC EMERGENCY DISPATCH TO BACKEND (SMS + EMAIL)
+function dispatchEmergencyAlert(p,h,po,ad){
+  var smsBox = $("emSmsStatusBox");
+  var emailBox = $("emEmailStatusBox");
+  var phList = C.contacts.map(function(c){return c.p}).filter(Boolean);
+  var emList = C.contacts.map(function(c){return c.e}).filter(function(e){return e&&e.includes("@")});
+
+  if(!phList.length && !emList.length){
+    if(smsBox) smsBox.innerHTML = "<b style='color:var(--bad)'>⚠️ No contact phone numbers or emails configured!</b><br>Please enter your emergency contacts in Setup.";
+    log("Auto-dispatch cancelled: no contacts");
+    return;
+  }
+
+  if(smsBox) smsBox.innerHTML = "<span style='color:var(--acc)'>⏳ <b>Automatically sending emergency SMS</b> to: " + esc(phList.join(", ") || "none") + "...</span>";
+  if(emailBox) emailBox.innerHTML = "<span style='color:var(--acc)'>⏳ <b>Automatically forwarding emergency Email</b> to: " + esc(emList.join(", ") || "none") + "...</span>";
+
+  var payload = {
+    driverName: C.name || "Driver",
+    blood: C.blood || "",
+    notes: C.notes || "",
+    lat: p ? p.lat : null,
+    lng: p ? p.lng : null,
+    address: ad || "",
+    reason: E.reason || "Emergency alert triggered",
+    time: new Date().toLocaleString(),
+    contacts: C.contacts,
+    hospital: h ? { name: h.name, distance: h.d, phone: h.phone } : null,
+    police: po ? { name: po.name, distance: po.d, phone: po.phone } : null
+  };
+
+  fetch("/api/alert", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  })
+  .then(function(res){ return res.json(); })
+  .then(function(res){
+    if(res.success){
+      log("Auto-dispatch completed successfully");
+      
+      // Update SMS Box
+      if(smsBox){
+        if(res.sms && res.sms.sent){
+          var smsHtml = "<div style='display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px'>" +
+            "<div><b style='color:var(--ok)'>✅ SMS Message Automatically Dispatched!</b><br><span style='font-size:13px'>Recipients: <b>" + esc(res.sms.recipients.join(", ")) + "</b></span></div>" +
+            "<button id='bReSms' class='s' style='font-size:12px;padding:4px 10px'>Resend</button>" +
+            "</div>" +
+            "<div style='font-size:12.5px;color:var(--mut);margin-top:6px;background:var(--bg);padding:6px;border-radius:4px'><i>\"" + esc(res.sms.previewText) + "\"</i></div>";
+          smsBox.innerHTML = smsHtml;
+          var rbs = $("bReSms");
+          if(rbs) rbs.onclick = function(){ dispatchEmergencyAlert(E.lastP, E.lastH, E.lastPo, E.lastAd); };
+        } else {
+          smsBox.innerHTML = "<span style='color:var(--mut)'>ℹ️ No phone numbers configured for SMS.</span>";
+        }
+      }
+
+      // Update Email Box
+      if(emailBox){
+        if(res.email && res.email.sent){
+          var emHtml = "<div style='display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px'>" +
+            "<div><b style='color:var(--ok)'>✅ Email Alert Automatically Forwarded!</b><br><span style='font-size:13px'>Recipients: <b>" + esc(res.email.recipients.join(", ")) + "</b></span></div>" +
+            "</div>";
+          if(res.email.previewUrl){
+            emHtml += "<div style='margin-top:6px'><a href='" + res.email.previewUrl + "' target='_blank' rel='noopener' style='color:#0f766e;font-weight:700;text-decoration:underline;font-size:13px'>🔗 View Dispatched Email Report (Preview)</a></div>";
+          }
+          emailBox.innerHTML = emHtml;
+        } else {
+          emailBox.innerHTML = "<span style='color:var(--mut)'>ℹ️ No email addresses configured.</span>";
+        }
+      }
+    } else {
+      log("Auto-dispatch error: " + (res.error || "Failed"));
+      if(smsBox) smsBox.innerHTML = "<b style='color:var(--bad)'>❌ Dispatch Failed:</b> " + esc(res.error || "Error") + "<br><button class='em-b s' style='font-size:13px;padding:6px;margin-top:6px' onclick='dispatchEmergencyAlert(E.lastP, E.lastH, E.lastPo, E.lastAd)'>Retry Dispatch</button>";
+    }
+  })
+  .catch(function(err){
+    log("Auto-dispatch network error: " + err.message);
+    if(smsBox) smsBox.innerHTML = "<b style='color:var(--bad)'>❌ Backend unreachable.</b> Check server connection.<br><button class='em-b s' style='font-size:13px;padding:6px;margin-top:6px' onclick='dispatchEmergencyAlert(E.lastP, E.lastH, E.lastPo, E.lastAd)'>Retry</button>";
+  });
+}
+
+function send(first){
+  var R=$("emR");R.classList.add("on");R.innerHTML="<h2>Emergency alert</h2><div class='em-k'>Acquiring GPS location & dispatching alert…</div><a class='em-b red' href='tel:"+C.num+"'>Call emergency services ("+C.num+")</a>";
+  pos().then(function(p){
+    if(!p){
+      render(null, null, null, null, first);
+      hist("alert without GPS");
+      return;
+    }
+    return Promise.all([near(p.lat,p.lng,"hospital"),near(p.lat,p.lng,"police"),addr(p.lat,p.lng)]).then(function(r){
+      render(p,r[0],r[1],r[2],first);
+    });
+  });
+}
+
+function render(p,h,po,ad,first){
+  E.lastP=p;E.lastH=h;E.lastPo=po;E.lastAd=ad;
+  var link=p?"https://maps.google.com/?q="+p.lat+","+p.lng:"#",tm=new Date().toLocaleString(),nm=C.name||"The driver";
+  var msg="["+nm+"] may have had an accident or fallen asleep at the wheel. "+(p?"Location: "+link+(ad?" ("+ad+")":"")+". ":"Location unavailable. ")+"Time: "+tm+". Nearest hospital: "+(h?h.name:"not found")+". Nearest police: "+(po?po.name:"not found")+"."+(C.blood?" Blood group: "+C.blood+".":"")+(C.notes?" Medical notes: "+C.notes+".":"");
+  var ph=C.contacts.map(function(c){return c.p}).filter(Boolean),em=C.contacts.map(function(c){return c.e}).filter(Boolean);
+  var sms="sms:"+ph.join(",")+(/iPhone|iPad/.test(navigator.userAgent)?"&":"?")+"body="+encodeURIComponent(msg);
+  function card(t,x){return x?"<div class='em-k'><b>"+t+": "+esc(x.name)+"</b><br>"+x.d.toFixed(1)+" km away"+(x.phone?"<br><a href='tel:"+esc(x.phone)+"'>"+esc(x.phone)+"</a>":"")+"<br><a href='"+nav(x)+"' target='_blank' rel='noopener'>Navigate</a></div>":"<div class='em-k'>"+t+": none found nearby</div>"}
+  
+  $("emR").innerHTML="<h2>🚨 Emergency Alert Activated</h2>"+
+   "<div class='auto-badge'>⚡ AUTOMATIC EMERGENCY DISPATCH ACTIVE</div>"+
+   "<a class='em-b red' href='tel:"+C.num+"'>Call emergency services ("+C.num+")</a>"+
+   "<div id='emSmsStatusBox' class='em-k' style='background:var(--pn,#fff);border:1.5px solid var(--acc);padding:14px;box-shadow:0 2px 6px rgba(0,0,0,0.06)'>Sending automated SMS...</div>"+
+   "<div id='emEmailStatusBox' class='em-k' style='background:var(--pn,#fff);border:1.5px solid var(--acc);padding:14px;box-shadow:0 2px 6px rgba(0,0,0,0.06)'>Forwarding automated Email...</div>"+
+   (p?"<div class='em-k'><b>Location</b> (accuracy ~"+Math.round(p.acc||0)+" m)<br><a href='"+link+"' target='_blank' rel='noopener'>"+p.lat.toFixed(5)+", "+p.lng.toFixed(5)+"</a>"+(ad?"<br>"+esc(ad):"")+"</div>":"<div class='em-k' style='color:var(--warn)'>GPS location unavailable.</div>")+
+   card("Nearest hospital",h)+card("Nearest police",po)+
+   (ph.length?"<a class='em-b s' href='"+sms+"'>Open SMS in Messages App</a>":"")+
+   (em.length?"<a class='em-b s' href='mailto:"+em.join(",")+"?subject="+encodeURIComponent("EMERGENCY: "+nm)+"&body="+encodeURIComponent(msg)+"'>Open in Email App</a>":"")+
+   (navigator.share?"<button class='em-b s' id='emSh'>Share Alert</button>":"")+
+   "<div class='em-k' style='font-size:13px'><b>Message text sent:</b><br>"+esc(msg)+"</div>"+done();
+
+  if($("emSh"))$("emSh").onclick=function(){navigator.share({text:msg}).catch(function(){})};
+  hist(first?"alert auto-dispatched":"repeat",p?p.lat:0,p?p.lng:0);
+  log((first?"Auto-dispatched at ":"repeat at ")+(p?p.lat.toFixed(4)+","+p.lng.toFixed(4):"unknown location"));
+
+  // TRIGGER AUTOMATIC MESSAGE & EMAIL DISPATCH
+  dispatchEmergencyAlert(p, h, po, ad);
+
+  if(first){
+    say("Emergency alert activated. Emergency message and SMS have been automatically dispatched to your contacts.");
+    clearInterval(E.rep);
+    E.rep=setInterval(function(){send(false)},120000);
+  }
+}
+
+function done(){setTimeout(function(){var b=$("emOk");if(b)b.onclick=stopAll},0);return "<button class='em-b s' id='emOk'>I am safe: stop alerts</button>"}
+function stopAll(){clearInterval(E.rep);E.on=false;$("emR").classList.remove("on");try{speechSynthesis.cancel()}catch(e){}hist("stopped: driver safe");log("Stopped by driver")}
+
+/* ---------- AUTOMATIC SENSOR & DROWSINESS TRIGGERS ---------- */
+/* 1: Auto-trigger when level-2 alarm remains unanswered for 8 seconds */
+setInterval(function(){
+  var S=window.S;
+  if(!S || !C.consent || E.on){ E.l2=0; return; }
+  if(S.alarm && S.lvl===2){
+    if(!E.l2) E.l2=Date.now();
+    else if(Date.now()-E.l2 > 8000){
+      E.l2=0;
+      start("Unresponsive Driver (Drowsiness Level 2 Alarm unanswered for 8s)");
+    }
+  } else {
+    E.l2=0;
+  }
+},500);
+
+/* 2: Manual SOS Button */
+var sosBtn=$("emSOS"),bar=sosBtn.firstChild;
+function sosUp(){clearTimeout(E.sos);bar.style.transition="none";bar.style.height="0"}
+sosBtn.addEventListener("pointerdown",function(e){e.preventDefault();bar.style.transition="height 2s linear";bar.style.height="100%";E.sos=setTimeout(function(){sosUp();start("Manual SOS Triggered")},2000)});
+["pointerup","pointerleave","pointercancel"].forEach(function(n){sosBtn.addEventListener(n,sosUp)});
+
+/* 3: Motion Sensor Crash Detection (Jolt > threshold at speed, then stillness) */
+function onMotion(e){
+  var a=e.accelerationIncludingGravity;if(!a||a.x==null)return;var now=Date.now(),g=Math.hypot(a.x,a.y,a.z)/9.81;
+  E.dev.push([now,Math.abs(g-1)]);while(E.dev.length&&E.dev[0][0]<now-1500)E.dev.shift();
+  if(g>C.g&&!E.spike){var v=0;E.spd.forEach(function(s){if(s[0]>now-10000)v=Math.max(v,s[1])});if(v>C.kmh){E.spike=now;E.spikeV=v;log("Jolt "+g.toFixed(1)+" g at "+Math.round(v)+" km/h, checking stillness")}}
+  if(E.spike){
+    if(now-E.spike>5000){E.spike=0;return}
+    if(now-E.spike>1500&&!E.on&&C.consent&&E.dev.every(function(d){return d[1]<.15})){E.spike=0;start("Possible Crash / Collision Detected")}
+  }
+}
+function arm(){
+  var s=$("emSt");
+  function go(){
+    window.addEventListener("devicemotion",onMotion);
+    if(navigator.geolocation)navigator.geolocation.watchPosition(function(p){E.pos={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy};if(p.coords.speed!=null)E.spd.push([Date.now(),p.coords.speed*3.6]);E.spd=E.spd.filter(function(x){return x[0]>Date.now()-15000})},function(){s.textContent="Crash sensor on (GPS speed unavailable).";},{enableHighAccuracy:true});
+    E.armed=true;s.textContent="Crash detection sensor armed.";log("Crash sensor armed");
+  }
+  if(typeof DeviceMotionEvent==="undefined"){s.textContent="No motion sensor detected on this device.";return}
+  if(typeof DeviceMotionEvent.requestPermission==="function"){DeviceMotionEvent.requestPermission().then(function(r){r==="granted"?go():s.textContent="Motion permission denied."}).catch(function(){s.textContent="Motion permission failed."})}
+  else go();
+}
+$("emArm").onclick=function(){read();arm()};
+})();
+</script>
+</body>
+</html>
